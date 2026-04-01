@@ -7,19 +7,28 @@ import {
   transactionSchema,
 } from '../schemas/transactionSchema';
 import { db } from '../database';
+import { checkSessionId } from '../middlewares/check-session-id';
 
 export const transactionsRoutes = async (app: FastifyInstance) => {
   app.post('/', async (request, reply) => {
     try {
-      const { amount, title, type, session_id } = transactionSchema.parse(
-        request.body,
-      );
+      const { amount, title, type } = transactionSchema.parse(request.body);
+
+      let sessionId = request.cookies.sessionId;
+
+      if (!sessionId) {
+        sessionId = randomUUID();
+        reply.cookie('sessionId', sessionId, {
+          path: '/',
+          maxAge: 1000 * 60 * 60 * 2,
+        });
+      }
 
       await db('transactions').insert({
         id: randomUUID(),
         title: title,
         amount: type === 'debit' ? amount : amount * -1,
-        session_id: session_id,
+        session_id: sessionId,
       });
 
       return reply.code(201).send();
@@ -28,16 +37,55 @@ export const transactionsRoutes = async (app: FastifyInstance) => {
     }
   });
 
-  app.get('/', async (request, reply) => {
-    const transactions = await db('transactions').select();
+  app.get(
+    '/',
+    {
+      preHandler: [checkSessionId],
+    },
+    async (request, reply) => {
+      const { sessionId } = request.cookies;
 
-    reply.code(204).send(transactions);
-  });
+      const transactions = await db('transactions')
+        .select()
+        .where('session_id', sessionId);
+      console.log(transactions);
 
-  app.get('/:id', async (request, reply) => {
-    const { id } = getTransactionSchema.parse(request.params);
-    const transaction = await db('transactions').select('*').where('id', id);
+      reply.send(transactions);
+    },
+  );
 
-    reply.code(204).send(transaction);
-  });
+  app.get(
+    '/:id',
+    {
+      preHandler: [checkSessionId],
+    },
+    async (request, reply) => {
+      const { id } = getTransactionSchema.parse(request.params);
+      const { sessionId } = request.cookies;
+
+      const transaction = await db('transactions').select('*').where({
+        id,
+        session_id: sessionId,
+      });
+
+      reply.send(transaction);
+    },
+  );
+
+  app.get(
+    '/summary',
+    {
+      preHandler: [checkSessionId],
+    },
+    async (request, reply) => {
+      const { sessionId } = request.cookies;
+
+      const summary = await db('transactions')
+        .where('session_id', sessionId)
+        .sum('amount', { as: 'amount' })
+        .first();
+
+      return reply.send(summary);
+    },
+  );
 };

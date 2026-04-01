@@ -4,7 +4,7 @@ export const transactionSchema = z.object({
   title: z.string(),
   amount: z.number(),
   type: z.enum(['credit', 'debit']),
-  session_id: z.uuid(),
+  session_id: z.uuid().optional(),
 });
 
 export const getTransactionSchema = z.object({
